@@ -1,5 +1,9 @@
 # dsh-zspace
 
+[![npm](https://img.shields.io/npm/v/dsh-zspace.svg)](https://www.npmjs.com/package/dsh-zspace)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![dsh-plugin](https://img.shields.io/badge/awesome-dsh--plugin-listed-8a2be2.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+
 极空间（ZSpace）NAS 的 **DeepSeek Harness 插件**：把 NAS 变成 agent 的原生工具 —— **跨网络可用**，不需要同一局域网、不需要 WebDAV、不需要 SSH、不需要 Python。
 
 ```
@@ -11,11 +15,11 @@ DSH 插件  →  http://127.0.0.1:13579  →  极空间桌面客户端（已登�
 ## 安装
 
 ```sh
-# 打包后安装（本机形态）
-dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
-
-# 或者直接装 npm 版本（发布后）
+# 从 npm 安装（推荐）
 dsh plugin --profile desktop add dsh-zspace@latest
+
+# 或用仓库里的本地包
+dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 ```
 
 装完**重启 DSH**（或在插件市场点「一键重启」）即可在会话里看到 `zspace_*` 工具。
