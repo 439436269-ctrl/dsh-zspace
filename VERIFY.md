@@ -75,3 +75,52 @@ dsh --profile zsverify --dump-config-schema   # $defs/config112 = 本插件 Conf
 - 相对本地路径按 **DSH 宿主进程目录**解析（实测报错落在 `~/.dsh/profiles/desktop/`），已改为支持 `~/` 并在参数说明与报错里写清。
 - 极空间无官方 API，接口随客户端版本可能变化；分片上传上限 2 MB/片、列表 50 条/页。
 - `zspace_find` 是受限遍历（默认 depth 4 / scanLimit 2000），结果会报告扫描范围，不是 NAS 全盘索引。
+
+## 6. 发布记录（2026-10-06）
+
+### GitHub
+
+| 项 | 值 |
+|---|---|
+| 仓库 | https://github.com/439436269-ctrl/dsh-zspace （public） |
+| 分支/提交 | `main` @ `b518225`（首个提交 `d605c90`） |
+| topics | `dsh-plugin` `deepseek-harness` `dsh` `cordis` `zspace` `nas` `webdav-alternative` |
+| CI | `.github/workflows/ci.yml`：Node 22 / 24 跑 28 项 mock 测试（真机自检不进 CI） |
+| 备注 | topic 不允许中文（`极空间` 提交会 422）；仓库本机 git 身份为 repo-local（全局没配 user.name/email） |
+
+### npm
+
+| 项 | 值 |
+|---|---|
+| 包 | https://www.npmjs.com/package/dsh-zspace |
+| 版本 | `0.1.0`（`dist-tags.latest = 0.1.0`），发布者 `vfvrpq`，2026-10-05T21:48:12Z |
+| shasum | `4d2e5e08b5d1a86582c6b447c45d9c4c7548e57f` |
+| integrity | `sha512-M8mt27BcV465eQJEh8LU/9qkGpLrzFw0NR+/Sv9vxPW4IqeD1f9lw/Segx8b6xRqOGpg+R4EvQshbaxyJtC6ig==` |
+| 文件数 / 解包 | 11 / 93988 B |
+| 发布命令 | `pnpm publish`（用临时 npmrc 承载 Automation token，发完即删） |
+
+校验结果：
+
+1. registry 回读 `dist-tags.latest = 0.1.0`，`GET /dsh-zspace/-/dsh-zspace-0.1.0.tgz` 200，下载体积与本地 tgz 一致；
+2. 下载产物的 sha1 与 `dist.shasum` 相符，且**与本地 `dsh-zspace-0.1.0.tgz` 逐字节相同**；
+3. 解包后逐文件 sha256 与仓库工作树一致（`package.json` 仅键序/缩进差异，JSON 语义 diff 为空）；
+4. 干净 profile 里 `dsh plugin --profile zsverify add dsh-zspace@0.1.0` 安装成功 → `dsh --profile zsverify --dump-config` 退出码 0、stderr 空，`id: zspace` 行配置完整（验证 profile 已删除）。
+
+两个发布期的坑，记下来：
+
+- **新包会自带一个 `0.0.0-stage` 占位版本**（version 对象里带 `stub` 字段，tarball 只有 README+package.json）。它是命名占位，不影响使用；`dist-tags.latest` 仍指向 `0.1.0`。若用 `curl` 读到旧缓存元数据会误以为发布失败。
+- **24h 观察期**：显式 `dsh plugin add dsh-zspace@0.1.0` 时 pnpm 会自动把该版本写进 profile 的 `minimumReleaseAgeExclude`（`pnpm-workspace.yaml`），所以安装不会被挡；但 `update ...@latest` 这类隐式取新版本仍会等到发布满 24h。
+
+### 本机安装形态
+
+desktop profile 目前仍用仓库里的本地包（保留快速改代码的循环）：
+
+```
+"dsh-zspace": "file:~/Documents/lcj/codes/dsh-zspace/dsh-zspace-0.1.0.tgz"
+```
+
+要切成 npm 源（给别的机器/别人用同一条命令）：
+
+```sh
+dsh plugin --profile desktop add dsh-zspace@0.1.0
+```
