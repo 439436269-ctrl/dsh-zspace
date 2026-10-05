@@ -1,0 +1,71 @@
+{
+  "name": "dsh-zspace",
+  "version": "0.1.0",
+  "description": "极空间（ZSpace）NAS plugin for DeepSeek Harness: cross-network agent tools for browsing, searching, reading, uploading and organizing NAS files through the desktop client's relay — no LAN, no WebDAV, no SSH, no Python.",
+  "type": "module",
+  "license": "MIT",
+  "author": "439436269-ctrl",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/439436269-ctrl/dsh-zspace.git"
+  },
+  "homepage": "https://github.com/439436269-ctrl/dsh-zspace#readme",
+  "bugs": {
+    "url": "https://github.com/439436269-ctrl/dsh-zspace/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "zspace",
+    "极空间",
+    "nas",
+    "webdav-alternative"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/client.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/client.test.js test/tools.test.js test/adaptor.test.js",
+    "selftest": "node scripts/live-selftest.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible"
+      }
+    }
+  }
+}

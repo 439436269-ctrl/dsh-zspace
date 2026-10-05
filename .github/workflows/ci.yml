@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Unit and integration tests (mock proxy)
+        run: node --test test/client.test.js test/tools.test.js test/adaptor.test.js
+
+  # The live self-test needs a logged-in ZSpace desktop client, so it is not
+  # part of CI. Run it locally with: npm run selftest
