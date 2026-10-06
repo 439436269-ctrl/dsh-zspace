@@ -144,3 +144,23 @@ dsh plugin --profile desktop add dsh-zspace@0.1.0
 4. 顺手把自检脚本打印的账号与 NAS 序列号做了脱敏（`***1997` / `***RRKU`），避免输出被贴出去时泄露身份。
 
 拆分过程中踩到的坑（都已在生成脚本里修正，留档备查）：JSDoc 首行被当成函数签名替换掉、子模块自己 import 自己、`errors.js` 的切片越界把 transport 的辅助函数卷了进去、委托调用把默认值写进实参（`readFile(this, p, options = {})` 会用 `{}` 覆盖调用方的 options）、ctx 与 import 同名遮蔽（`humanSize`）。
+
+## 8. 0.1.2：按编排 skill 跑一遍小需求（2026-10-06）
+
+需求：新增 `zspace_write`（文本直写 NAS）+ `writeMaxBytes` 配置 + 路径示例泛化。**用 `dsh-plugin-ship` 的九阶段门跑完整流程**，作为编排 skill 的实证。
+
+| 阶段 | 产出 | 验收证据 |
+|---|---|---|
+| P0 方案 | 一个新工具 + 一个新配置项 + 文档泛化（无破坏性变更） | 工具表由 12 → 13 |
+| P2 实现 | `lib/tools/write.js`、`tools.js` 注册、`config.js` 三处同步、`cordis.patch.yml` | 临时目录 staging + 复用上传路径，成功与否都清理 |
+| P3 验证 | mock 29 项（+write 的 4 类断言）、真机 21 步（+直写→读回内容比对） | 29/29 通过；真机 exit 0 且清理干净 |
+| P4 安装 | 打包 0.1.2（`lib/tools` 17 个文件）→ remove/add | 装好版本 0.1.2，`write.js` 在包内 |
+| P5 隐私门 | `privacy_scan.py . --history` | 零命中；新包内无身份串 |
+| P6 建仓 | 提交 `7a27cca` → 推送 | 远端 main = 7a27cca；CI #3 success |
+| P7 发布 | `dsh-zspace@0.1.2` | `dist-tags.latest = 0.1.2`；sha1 `7b6ae15d…` == `dist.shasum`；与本地 tgz 逐字节一致；逐文件 38 一致 |
+| P8 回写 | 本节 + CHANGELOG + 两个 skill 修订 | — |
+
+本轮由编排暴露并修正的两个认知错误：
+
+1. **`pnpm publish` 是分段发布**：0.1.2 发完 10 分钟内 `dist-tags` 仍是 0.1.1、版本端点 404、重发报 `409 Cannot publish over previously staged version`。这不是失败，是暂存窗口（实测约 6～12 分钟自动 promote）。已把这个真相写回 `dsh-plugin-publish-npm` skill（此前解释为"新包占位/缓存"，不准确）。
+2. **校验脚本要吃 CDN 传播延迟**：`dist.shasum` 已经指向本地包、但 tarball URL 仍 404 数次。已给 `verify_npm_artifact.py` 加退避重试（404/429/5xx，15s 起阶梯），避免把"传播慢"误判成"产物不对"。
