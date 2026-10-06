@@ -112,7 +112,11 @@ async function main() {
 	let scratch = "";
 
 	console.log(`代理：${client.baseUrl}`);
-	console.log(`登录态：${client.identity.vuexPath || "(显式凭据)"}  账号：${client.identity.username}  NAS：${client.identity.nasId}`);
+	// 身份信息脱敏：这个脚本的输出经常被贴进 issue / 聊天里。
+	const mask = (value) => (typeof value === "string" && value.length > 4 ? `***${value.slice(-4)}` : "***");
+	console.log(
+		`登录态：${client.identity.vuexPath || "(显式凭据)"}  账号：${mask(client.identity.username)}  NAS：${mask(client.identity.nasId)}`,
+	);
 
 	try {
 		await step("探活（桌面客户端代理）", async () => {

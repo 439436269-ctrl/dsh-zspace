@@ -124,3 +124,23 @@ desktop profile 目前仍用仓库里的本地包（保留快速改代码的循�
 ```sh
 dsh plugin --profile desktop add dsh-zspace@0.1.0
 ```
+
+## 7. 内部重构（0.1.1，2026-10-06）
+
+触发：`client.js` 857 行、`tools.js` 805 行过长，改为「一个文件一个能力」。**对外行为与 API 不变**。
+
+| 项 | 重构前 | 重构后 |
+|---|---|---|
+| `lib/client.js` | 857 行单体 | 197 行 facade + `lib/client/` 8 个能力文件（最大 transport 335 行） |
+| `lib/tools.js` | 805 行单体 | 66 行注册表 + `lib/tools/` 15 个文件（shared/paths/walk + 12 个工具，最大 walk 118 行） |
+| `lib/index.js` | 206 行 | 87 行接线 + `config.js` 105 行 + `prompt.js` 26 行 |
+| 打包 | — | 0.1.1 tgz 共 37 个文件，`lib/client/*` 8 个、`lib/tools/*` 15 个都在包内 |
+
+验证方式：
+
+1. 搬迁是**逐字**的（脚本按块抽取方法/对象，只做去一层缩进与 `this.` → `client.`），无逻辑改写；
+2. 每个阶段跑 28 项 mock 测试全绿（client 拆分 → tools 拆分 → 入口拆分，各自一个提交）；
+3. 重装 `0.1.1` 后真机自检全绿（19 步：中文名单请求上传、1 KB 分片上传、sha256 往返、复制/重命名/遍历查找/移动/删除/清理）；
+4. 顺手把自检脚本打印的账号与 NAS 序列号做了脱敏（`***1997` / `***RRKU`），避免输出被贴出去时泄露身份。
+
+拆分过程中踩到的坑（都已在生成脚本里修正，留档备查）：JSDoc 首行被当成函数签名替换掉、子模块自己 import 自己、`errors.js` 的切片越界把 transport 的辅助函数卷了进去、委托调用把默认值写进实参（`readFile(this, p, options = {})` 会用 `{}` 覆盖调用方的 options）、ctx 与 import 同名遮蔽（`humanSize`）。

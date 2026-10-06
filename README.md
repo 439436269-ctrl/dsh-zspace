@@ -91,10 +91,24 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
   - NAS 网页层的 `/file_search/file_search` 在当前固件上**忽略关键字**（换任何关键词都返回同一批 100 项），所以 `zspace_find` 用的是**受限目录遍历**而不是该接口，结果会明确报告扫描范围；
   - 单次 list 最多 50 条（插件已自动分页）；远端模式分片上限 2 MB/片。
 
+## 代码结构
+
+按「**一个文件 = 一个能独立解释的能力**」组织，完整职责表与扩展步骤见 [lib/README.md](lib/README.md)：
+
+```
+lib/index.js      插件接线（name/inject 转发 Config + apply）    lib/client/  协议按能力拆分
+lib/config.js     配置 schema、默认值、边界校验                  transport  URL/编码/重试/校验
+lib/prompt.js     系统提示里的用法说明                            spaces     探活、存储池、空间根
+lib/tools.js      工具注册表（只做注册）                          browse/mutate  列表 / 增删改
+lib/tools/*.js    12 个工具，各一个文件                            upload/download  分片上传 / 流式下载
+```
+
+依赖是严格单向无环：`index → tools → client → {errors,transport} → format/auth`。加一个工具 = 新建 `lib/tools/<名字>.js` + 在 `lib/tools.js` 注册一行。
+
 ## 测试
 
 ```sh
-node --test test/client.test.js test/tools.test.js test/adaptor.test.js   # 27 项单测/集成（mock 代理）
+node --test test/client.test.js test/tools.test.js test/adaptor.test.js   # 28 项单测/集成（mock 代理）
 node scripts/live-selftest.js                                            # 真机端到端自检（会创建并清理临时目录）
 ```
 
