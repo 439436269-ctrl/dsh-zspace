@@ -19,13 +19,13 @@ lib/
 │   ├── mutate.js    102 行  mkdir / rename / move / copy / remove
 │   ├── upload.js    129 行  单请求上传 + 分片协议
 │   └── download.js  128 行  流式下载、限量读入内存
-├── tools.js        66 行   工具注册表：建 ctx、按顺序调用 12 个工厂
+├── tools.js        68 行   工具注册表：建 ctx、按顺序调用 13 个工厂
 └── tools/
     ├── shared.js     52 行  clampInt / entryLine / guarded
     ├── paths.js      84 行  home:/public:/相对/绝对 解析 + 本地路径（含 ~/）
     ├── walk.js      118 行  walkDirectory（ls 递归）、findByName（受限查找）
-    └── <工具名>.js  35-116 行  每个工具一个文件：status ls stat find read
-                                download upload mkdir rename move copy remove
+    └── <工具名>.js  35-120 行  每个工具一个文件：status ls stat find read
+                                download upload write mkdir rename move copy remove
 ```
 
 ## 依赖方向（严格单向，无环）

@@ -6,8 +6,9 @@
 # Every value below has a code-side default, so this patch stays valid even on
 # a host without patch-side helper evaluation. `homePath` / `publicPath` are
 # intentionally empty: the plugin discovers them from the NAS storage pools at
-# runtime (e.g. /sata1/my/data and /sata1/public), which keeps the same file
-# working on NAS models that name their pools differently.
+# runtime (personal space looks like /<pool>/my/data, public space like
+# /<pool>/public), which keeps the same file working on NAS models that name
+# their pools differently.
 
 - insert:
     - id: zspace
@@ -19,6 +20,7 @@
         publicPath: ""
         downloadDir: ""
         readMaxBytes: 262144
+        writeMaxBytes: 5242880
         listMaxEntries: 2000
         timeoutMs: 60000
         maxRetries: 2

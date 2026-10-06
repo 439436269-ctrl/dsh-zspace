@@ -41,6 +41,7 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 | `zspace_read` | 把小文本文件读进上下文（默认上限 256 KB，二进制自动识别） |
 | `zspace_download` | 从 NAS 下载到本机（默认落到 `~/Downloads/zspace`） |
 | `zspace_upload` | 上传本地文件，**大文件自动走分片协议**，中文文件名可用 |
+| `zspace_write` | 把文本**直接写到 NAS**（省掉本地临时文件），默认覆盖、可传 `overwrite: false` 拒绝覆盖 |
 | `zspace_mkdir` | 建目录 |
 | `zspace_rename` | 就地重命名 |
 | `zspace_move` | 移动到另一个目录（服务端操作，不下载） |
@@ -51,11 +52,11 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 
 | 写法 | 含义 |
 |---|---|
-| 省略 / `""` | 个人空间根（本机实测 `/sata1/my/data`） |
+| 省略 / `""` | 个人空间根（形如 `/<pool>/my/data`，实际值由插件探测） |
 | `home:相册` | 个人空间下的 `相册` |
-| `public:公共分组/skills` | 公共空间下的路径（本机 `/sata1/public/...`） |
+| `public:公共分组/skills` | 公共空间下的路径（形如 `/<pool>/public/...`） |
 | `docs/2026` | 相对个人空间根 |
-| `/sata1/my/data/x.txt` | NAS 绝对路径，原样使用 |
+| `/<pool>/my/data/x.txt` | NAS 绝对路径，原样使用 |
 
 两个根路径由插件按存储池自动探测（`/<pool>/my/data`、`/<pool>/public`），也可在配置里写死。
 
@@ -75,6 +76,7 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 | `homePath` / `publicPath` | 空＝自动探测 | 写死个人/公共空间根 |
 | `downloadDir` | 空＝`~/Downloads/zspace` | 默认下载目录 |
 | `readMaxBytes` | `262144` | `zspace_read` 上限 |
+| `writeMaxBytes` | `5242880` | `zspace_write` 单次写入上限（更大的内容用 `zspace_upload`） |
 | `listMaxEntries` | `2000` | 单次列目录/树的上限 |
 | `timeoutMs` / `maxRetries` | `60000` / `2` | 请求超时与瞬时失败重试 |
 | `smallUploadMaxBytes` | `8388608` | 超过就用分片上传 |

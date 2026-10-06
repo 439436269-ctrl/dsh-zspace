@@ -140,7 +140,7 @@ function writeFakeVuex(dir) {
 	return dir;
 }
 
-test("the adapter mounts 12 tools, one guide section, and a working status tool", async () => {
+test("the adapter mounts 13 tools, one guide section, and a working status tool", async () => {
 	const root = stagePlugin();
 	const proxy = await startStatusProxy();
 	const configDir = writeFakeVuex(path.join(root, "zspace-config"));
@@ -182,7 +182,7 @@ test("the adapter mounts 12 tools, one guide section, and a working status tool"
 	});
 
 	assert.equal(typeof disposer, "function", "the client must be created inside ctx.effect");
-	assert.equal(registered.length, 12, `expected 12 tools, got ${registered.map(tool => tool.name).join(", ")}`);
+	assert.equal(registered.length, 13, `expected 13 tools, got ${registered.map(tool => tool.name).join(", ")}`);
 	assert.equal(sections.length, 1);
 	assert.equal(sections[0].name, "zspace:guide");
 	assert.match(sections[0].text(), /极空间/);
@@ -260,7 +260,7 @@ test("the guide section can be disabled without breaking the mount", async () =>
 		promptOrder: 60,
 	});
 	assert.equal(sections.length, 0);
-	assert.equal(registered.length, 12);
+	assert.equal(registered.length, 13);
 });
 
 test("a partial config falls back to code-side defaults", async () => {

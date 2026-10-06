@@ -24,7 +24,7 @@ import process from "node:process";
 
 import { ZSpaceClient } from "../lib/client.js";
 import { humanSize } from "../lib/format.js";
-import { findByName } from "../lib/tools.js";
+import { createToolSpecs, findByName } from "../lib/tools.js";
 
 const KEEP = process.argv.includes("--keep");
 const SCRATCH_NAME = "dsh-zspace-selftest";
@@ -168,6 +168,25 @@ async function main() {
 		const info = await step("查看详情", async () => client.info(smallUpload.remotePath));
 		if (info.size !== Buffer.byteLength(smallBody)) throw new Error(`大小不符：${info.size} ≠ ${Buffer.byteLength(smallBody)}`);
 		console.log(`  ${info.name} ${humanSize(info.size)} 修改于 ${info.modified}`);
+
+		// 走 tools 层（模型实际调用的那一层）验证 zspace_write：直写 -> 读回 -> 内容比对
+		const specs = new Map(
+			createToolSpecs({
+				getClient: () => client,
+				config: { downloadDir: "", readMaxBytes: 262_144, writeMaxBytes: 5 * 1024 * 1024, listMaxEntries: 2000 },
+			}).map(spec => [spec.name, spec]),
+		);
+		const writeBody = `直写自检 ${new Date().toISOString()}\n第二行中文\n`;
+		await step("zspace_write 直写文本 + zspace_read 读回校验", async () => {
+			const target = `${scratch}/直写-中文.md`;
+			const written = await specs.get("zspace_write").execute({ path: target, content: writeBody });
+			createdRemotely.push(target);
+			if (written.bytes !== Buffer.byteLength(writeBody, "utf8")) throw new Error(`字节数不符：${written.bytes}`);
+			const back = await specs.get("zspace_read").execute({ path: target, maxBytes: 4096 });
+			if (back.content !== writeBody) throw new Error("读回内容与写入不一致");
+			if (back.binary) throw new Error("文本文件被判定为二进制");
+			console.log(`  → ${target}（${written.method}，${written.bytes} 字节，读回一致）`);
+		});
 
 		const head = await step("读取文本前 10 字节", async () => client.readFile(smallUpload.remotePath, { maxBytes: 10 }));
 		console.log(`  "${head.buffer.toString("utf8")}"${head.truncated ? "（截断）" : ""}`);

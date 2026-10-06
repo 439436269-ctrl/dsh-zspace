@@ -298,6 +298,46 @@ test("upload resolves the local file and the remote directory", async () => {
 	);
 });
 
+test("write puts text onto the NAS through a cleaned-up staging file", async () => {
+	let seen = null;
+	const client = fakeClient({
+		upload: async (localPath, remoteDir, options) => {
+			seen = { localPath, remoteDir, options, content: fs.readFileSync(localPath, "utf8"), existedAtCall: fs.existsSync(localPath) };
+			return { remotePath: `${remoteDir}/${options.name}`, bytes: Buffer.byteLength(seen.content, "utf8"), method: "create" };
+		},
+	});
+	const write = specsFor(client).get("zspace_write");
+	const body = "极空间写入测试\n第二行\n";
+
+	const value = await write.execute({ path: "public:笔记/日报.md", content: body });
+	assertSchema(write.outputSchema, value);
+	assert.equal(value.path, `${PUBLIC}/笔记/日报.md`);
+	assert.equal(value.bytes, Buffer.byteLength(body, "utf8"));
+	assert.equal(value.method, "create");
+	assert.equal(seen.remoteDir, `${PUBLIC}/笔记`);
+	assert.equal(seen.options.name, "日报.md");
+	assert.equal(seen.content, body, "临时文件内容必须是待写入的文本");
+	assert.equal(fs.existsSync(seen.localPath), false, "临时目录必须清理干净");
+	assert.match(write.render({}, value)[0].text, /已写入/);
+
+	// overwrite=false 且目标已存在 -> 拒绝
+	await assert.rejects(
+		() => write.execute({ path: "note.txt", content: "x", overwrite: false }),
+		/overwrite=false 时拒绝覆盖/,
+	);
+	// overwrite 缺省 = 允许覆盖（fake client 的 info 永远成功，正好走这条分支）
+	const forced = await write.execute({ path: "note.txt", content: "覆盖" });
+	assert.equal(forced.path, `${HOME}/note.txt`);
+
+	await assert.rejects(() => write.execute({ path: "note.txt", content: "" }), /不能为空/);
+	// 用小上限的配置验证体积护栏（默认 5 MB，测试里不方便造）
+	const tiny = specsFor(client, { writeMaxBytes: 1024 }).get("zspace_write");
+	await assert.rejects(
+		() => tiny.execute({ path: "big.txt", content: "x".repeat(2000) }),
+		/超过 writeMaxBytes=1024/,
+	);
+});
+
 test("write tools validate their arguments", async () => {
 	const client = fakeClient();
 	const specs = specsFor(client);
@@ -385,5 +425,5 @@ test("every spec is well-formed: unique zspace_ name, described parameters, vali
 		assert.equal(spec.outputSchema.type, "object", `${spec.name} output must be an object`);
 		assert.equal(spec.outputSchema.additionalProperties, false, `${spec.name} output must be closed`);
 	}
-	assert.equal(names.size, 12, "the plugin ships 12 tools");
+	assert.equal(names.size, 13, "the plugin ships 13 tools");
 });
