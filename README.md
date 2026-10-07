@@ -30,11 +30,28 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 2. 该账号对目标空间有权限（个人空间 / 公共空间）；
 3. 不需要给 NAS 开任何端口，也不需要 DDNS。
 
+## 双通道：同网络直连 WebDAV，跨网络走云中转
+
+插件对同一套工具**自动选路**，判断依据是**可达性**而不是 IP 网段（本机在 `192.168.31.x` 也能直连 `<nas-ip>` 的 NAS）：
+
+| 情况 | 通道 | 条件 |
+|---|---|---|
+| 能直连 NAS（同网络） | **WebDAV 直连** | 配了 `webdavUrl` + 环境变量 `ZS_WEBDAV_PASSWORD`；1.5s PROPFIND 探测通过即启用 |
+| 跨网络 / WebDAV 不可达 | 桌面客户端云中转（默认） | 桌面客户端已登录并在运行 |
+
+- WebDAV 通道的好处：延迟更低、不依赖桌面客户端在线、目录列表一次 `PROPFIND` 拿全（没有中转的 50 行分页）。
+- 运行中 WebDAV 掉了（换网、NAS 重启）会**自动回退到中转并在同一次调用内重试**，只损失一点延迟，不会让工具调用失败；30s 后重新探测。
+- `transportMode`：`auto`（默认）/ `webdav`（强制，失败直接报错）/ `relay`（保持旧行为）。
+- 路径映射：NAS 的 `/sata1/my/data/...` ↔ WebDAV 的 `<webdavHomePath>/...`（默认根 `/`）；公共空间由 `webdavPublicPath` 指定（默认空＝不在 WebDAV 暴露，相关路径自动回到中转）。
+- 极空间要在「系统设置 → 文件服务」里开启 WebDAV（默认端口 `5005`，本机实测可用；`5006` 是自签 HTTPS，证书校验会失败）。
+- 密码只走环境变量（`ZS_WEBDAV_PASSWORD`，可选 `ZS_WEBDAV_USER`），**不要写进 patch 文件**——patch 是明文，会被备份/截图带走。
+- `zspace_remove` 在 WebDAV 通道下是 NAS 侧的删除语义（是否进回收站由 NAS 决定）；要确保进回收站请用 `transportMode: relay`。
+
 ## 工具
 
 | 工具 | 作用 |
 |---|---|
-| `zspace_status` | 探活：代理、账号、NAS、存储池余量、个人/公共空间根路径与条目数。其它工具报错时先跑它 |
+| `zspace_status` | 探活：**当前通道**（WebDAV 直连 / 云中转）、代理、账号、NAS、存储池余量、个人/公共空间根路径与条目数。其它工具报错时先跑它 |
 | `zspace_ls` | 列目录，支持 `depth` 递归与 `limit` 预算；自动分页（NAS 单页 50 条） |
 | `zspace_stat` | 单个文件/目录的元信息（大小、修改/创建时间） |
 | `zspace_find` | 按名称在目录树里查找（大小写不敏感子串），会报告扫描了多少条目、是否提前停止 |
@@ -75,6 +92,12 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 | `apiVersion` | `2.3.2026042401` | NAS Web API 版本号参数 |
 | `homePath` / `publicPath` | 空＝自动探测 | 写死个人/公共空间根 |
 | `downloadDir` | 空＝`~/Downloads/zspace` | 默认下载目录 |
+| `transportMode` | `auto` | 通道：`auto` / `webdav` / `relay` |
+| `webdavUrl` | 空＝关闭 | WebDAV 地址，如 `http://<nas-ip>:5005/` |
+| `webdavUser` | 空 | WebDAV 账号（NAS 账号）；密码走 `ZS_WEBDAV_PASSWORD` |
+| `webdavPassword` | 空 | 密码兜底项，建议留空改用环境变量 |
+| `webdavHomePath` / `webdavPublicPath` | `/` / 空 | 个人/公共空间在 WebDAV 里的路径（空＝公共空间不暴露） |
+| `webdavProbeTimeoutMs` | `1500` | 直连探测超时 |
 | `readMaxBytes` | `262144` | `zspace_read` 上限 |
 | `writeMaxBytes` | `5242880` | `zspace_write` 单次写入上限（更大的内容用 `zspace_upload`） |
 | `listMaxEntries` | `2000` | 单次列目录/树的上限 |

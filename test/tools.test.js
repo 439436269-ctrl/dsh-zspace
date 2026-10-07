@@ -51,6 +51,7 @@ function fakeClient(overrides = {}) {
 			],
 			truncated: false,
 		}),
+		transportReport: async () => ({ transport: "relay", configured: false, probe: null }),
 		info: async (target) => ({ name: path.posix.basename(target), path: target, dir: false, size: 12, modified: "2026-10-05 10:01", created: "2026-10-05 09:00", ext: "txt" }),
 		readFile: async () => ({ buffer: Buffer.from("hello 极空间"), truncated: false, bytes: 14 }),
 		download: async (remote, localDir) => ({ localPath: path.join(localDir, path.posix.basename(remote)), bytes: 14 }),

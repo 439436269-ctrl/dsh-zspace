@@ -1,5 +1,16 @@
 # 变更日志
 
+## 0.3.0 — 2026-10-07
+
+**双通道**：同一网络时直连 NAS 的 WebDAV，跨网络继续走桌面客户端云中转，插件自动选路。工具名与参数**完全不变**（仍是 13 个），既有配置继续可用。
+
+- 新增 `lib/client/webdav.js`：WebDAV 传输层（PROPFIND 列目录/取元信息、MKCOL、PUT、GET（含 Range）、MOVE、COPY、DELETE、Basic 鉴权、namespace 无关的 multistatus 解析、NAS 路径 ↔ DAV 路径双向映射）。
+- 新增 `lib/client/router.js`：选路与回退。`auto`（默认）按**可达性**探测（1.5s PROPFIND，结果缓存 60s）；**运行中** WebDAV 失败（超时/拒绝连接/5xx）会标记下线 30s 并在**同一次调用内**改用中转重试，业务错误（401/403/404/405/409、`N00…`）不触发回退。
+- 新增配置：`transportMode`(auto/webdav/relay)、`webdavUrl`、`webdavUser`、`webdavPassword`、`webdavHomePath`、`webdavPublicPath`、`webdavProbeTimeoutMs`。**密码建议只放环境变量 `ZS_WEBDAV_PASSWORD`（可选 `ZS_WEBDAV_USER`），不要写进 patch**。
+- `zspace_status` 增加 `transport` / `webdavUrl` / `webdavProbe` 字段，并说明当前在用哪条通道、不可用时两边的原因。
+- WebDAV 通道的收益：直连低延迟、不依赖桌面客户端在线、目录列表一次 `PROPFIND` 拿全（没有中转 50 行分页）。注意 `zspace_remove` 在直连通道下是 NAS 侧删除语义（是否进回收站由 NAS 决定）。
+- 验证：**36 项测试**（新增 `test/webdav.test.js` 7 项，含真 socket 的 mock WebDAV 服务器、鉴权失败/不可达探测、auto 选路、运行期回退、强制模式不回退）；真机自检新增通道诊断步骤（配了密码时还会跑一遍 WebDAV 直连写→读往返）。
+
 ## 0.1.2 — 2026-10-06
 
 新增一个写入类工具 + 一个配置项，并把文档里的真实池名换成占位符（**无破坏性变更**，工具表新增一行）：

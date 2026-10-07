@@ -108,7 +108,15 @@ async function main() {
 	// A 1 KB slice size + 1 KB single-request threshold forces the sliced
 	// protocol for the 3 KB fixture, so the desktop-client upload path is
 	// exercised for real instead of only in the unit tests.
-	const client = new ZSpaceClient({ sliceSize: 1024, smallUploadMaxBytes: 1024 });
+	const client = new ZSpaceClient({
+		sliceSize: 1024,
+		smallUploadMaxBytes: 1024,
+		// 想在本脚本里也验证 WebDAV 直连，导出这三个环境变量即可
+		// （ZS_WEBDAV_URL=http://<nas>:5005/ ZS_WEBDAV_USER=<账号> ZS_WEBDAV_PASSWORD=<密码>）
+		webdavUrl: process.env.ZS_WEBDAV_URL || "",
+		webdavUser: process.env.ZS_WEBDAV_USER || "",
+		transportMode: process.env.ZS_TRANSPORT || "auto",
+	});
 	let scratch = "";
 
 	console.log(`代理：${client.baseUrl}`);
@@ -119,8 +127,15 @@ async function main() {
 	);
 
 	try {
-		await step("探活（桌面客户端代理）", async () => {
-			if (!(await client.check())) throw new Error(`代理 ${client.baseUrl} 无响应`);
+		const transportReport = await step("通道诊断（WebDAV 直连 vs 云中转）", async () => {
+			const report = await client.transportReport();
+			const probe = await client.probeWebdav();
+			console.log(`  通道=${report.transport}；webdavUrl=${client.webdavUrl || "(未配置)"}；探测：${probe.reason}`);
+			return report;
+		});
+
+		await step("探活（当前通道）", async () => {
+			if (!(await client.check())) throw new Error(`WebDAV 与代理 ${client.baseUrl} 都不可用`);
 		});
 
 		const pools = await step("存储池 /zspool/info", async () => client.pools());
@@ -176,6 +191,19 @@ async function main() {
 				config: { downloadDir: "", readMaxBytes: 262_144, writeMaxBytes: 5 * 1024 * 1024, listMaxEntries: 2000 },
 			}).map(spec => [spec.name, spec]),
 		);
+		if (transportReport.transport === "webdav") {
+			await step("WebDAV 直连往返（经 tools 层：写→读）", async () => {
+				const target = `${scratch}/dav-直连.md`;
+				const body = `webdav 直连 ${new Date().toISOString()}\n第二行中文\n`;
+				const written = await specs.get("zspace_write").execute({ path: target, content: body });
+				createdRemotely.push(target);
+				if (written.method !== "put") throw new Error(`期望 WebDAV PUT，实际 ${written.method}`);
+				const back = await specs.get("zspace_read").execute({ path: target, maxBytes: 4096 });
+				if (back.content !== body) throw new Error("WebDAV 直连读回内容不一致");
+				console.log(`  → ${target}（${written.method}，直连通道，读回一致）`);
+			});
+		}
+
 		const writeBody = `直写自检 ${new Date().toISOString()}\n第二行中文\n`;
 		await step("zspace_write 直写文本 + zspace_read 读回校验", async () => {
 			const target = `${scratch}/直写-中文.md`;

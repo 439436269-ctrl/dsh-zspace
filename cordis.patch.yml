@@ -3,6 +3,11 @@
 # A patch replaces the targeted row's whole `config`, so a profile that
 # overrides this row must restate every key it wants to keep.
 #
+# WebDAV fast path: when the machine can reach the NAS directly (same network),
+# `transportMode: auto` probes this URL and uses it; otherwise every call falls
+# back to the desktop client relay. The password is NOT stored here — set
+# ZS_WEBDAV_PASSWORD in the host environment (and optionally ZS_WEBDAV_USER).
+#
 # Every value below has a code-side default, so this patch stays valid even on
 # a host without patch-side helper evaluation. `homePath` / `publicPath` are
 # intentionally empty: the plugin discovers them from the NAS storage pools at
@@ -26,5 +31,12 @@
         maxRetries: 2
         smallUploadMaxBytes: 8388608
         sliceSize: 2097152
+        transportMode: auto
+        webdavUrl: ""
+        webdavUser: ""
+        webdavPassword: ""
+        webdavHomePath: /
+        webdavPublicPath: ""
+        webdavProbeTimeoutMs: 1500
         promptEnabled: true
         promptOrder: 60

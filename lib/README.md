@@ -17,6 +17,9 @@ lib/
 │   ├── spaces.js    153 行  代理探活、存储池、个人/公共空间根探测
 │   ├── browse.js     64 行  分页列目录、单条元信息
 │   ├── mutate.js    102 行  mkdir / rename / move / copy / remove
+│   ├── relay.js     31 行  中转通道聚合（把下面各能力汇总成一个面）
+│   ├── webdav.js   520 行  WebDAV 直连通道（PROPFIND/PUT/MOVE/COPY + 路径双向映射）
+│   ├── router.js    99 行  选路：auto 探测 / 强制 / 运行期回退
 │   ├── upload.js    129 行  单请求上传 + 分片协议
 │   └── download.js  128 行  流式下载、限量读入内存
 ├── tools.js        68 行   工具注册表：建 ctx、按顺序调用 13 个工厂
