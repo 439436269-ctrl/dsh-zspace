@@ -198,3 +198,11 @@ ZS_WEBDAV_URL=... ZS_WEBDAV_USER=... ZS_WEBDAV_PASSWORD=... node scripts/live-se
 
 1. **git 推送的备胎通道**：`github.com:443` 与全部隧道 IP 都失效时，用 `api.github.com` 的 Git Data API 推送（新建 blob→tree→commit→更新 ref）。**服务端 commit SHA 与本地不同**（账号身份/时间/消息差异），但脚本会断言 **tree sha 与本地 `HEAD^{tree}` 一致**，内容等价、CI 照常绿。已沉淀为 `dsh-plugin-publish-repo/scripts/gh_api_push.py` 与 skill 第 4b 节。
 2. **npm 分段发布**：0.3.0 这次发布到 promote 约 10 分钟；期间 `latest` 仍是 0.1.2，属正常窗口。
+
+## 9b. 0.3.1：WebDAV 地址支持环境变量（零 patch 启用）
+
+- 动机：靠 patch 配 `webdavUrl` 要在 profile 层写同 id 的 insert，存在"同 id 两行 → 挂载两次"的已知坑；改成环境变量取值后**三个变量即可启用直连，零 patch 改动**。
+- 变更：`webdav.js` 增加 `webdavUrl(client)`（配置优先、`ZS_WEBDAV_URL` 兜底），`probe`/`configured`/`baseUrl`/`zspace_status` 统一取值。
+- 验证：**37/37 测试**（新增"仅靠环境变量也能启用直连"用例）；npm `0.3.1` 已发布（`latest`），产物与本地 tgz 逐字节一致。
+- 推送：仍走 `api.github.com` 备胎通道，远端 main `259ee77`（tree 与本地 `HEAD^{tree}` 一致，CI #6 success）；本地 HEAD `f7c3f44` 与之内容等价、SHA 不同。
+- 实测纠错：API 推送后**不能**用 `git update-ref refs/remotes/origin/main <服务端SHA>` 对齐（对象不在本地 → `nonexistent object`）；等 github 恢复后 `git fetch && git reset --hard origin/main` 收口。已修 `dsh-plugin-publish-repo` skill 第 4b 节。
