@@ -164,3 +164,37 @@ dsh plugin --profile desktop add dsh-zspace@0.1.0
 
 1. **`pnpm publish` 是分段发布**：0.1.2 发完 10 分钟内 `dist-tags` 仍是 0.1.1、版本端点 404、重发报 `409 Cannot publish over previously staged version`。这不是失败，是暂存窗口（实测约 6～12 分钟自动 promote）。已把这个真相写回 `dsh-plugin-publish-npm` skill（此前解释为"新包占位/缓存"，不准确）。
 2. **校验脚本要吃 CDN 传播延迟**：`dist.shasum` 已经指向本地包、但 tarball URL 仍 404 数次。已给 `verify_npm_artifact.py` 加退避重试（404/429/5xx，15s 起阶梯），避免把"传播慢"误判成"产物不对"。
+
+## 9. 0.3.0：双通道（同网络直连 WebDAV / 跨网络走云中转）
+
+| 阶段 | 产出 | 验收证据 |
+|---|---|---|
+| P0 方案 | 新增 WebDAV 传输 + 自动选路，工具名/参数不变 | 确认门：地址 `http://<nas-ip>:5005/`、密码走 `ZS_WEBDAV_PASSWORD`、策略 auto |
+| P2 实现 | `lib/client/webdav.js`、`lib/client/relay.js`、`lib/client/router.js`、facade 改分发、config +7 键、patch、status 增字段 | 中转路径零改动（旧 29 项测试继续绿） |
+| P3 验证 | mock WebDAV 服务器（真 socket）+ 中转 stub，7 项新测试 | **36/36 通过**：PROPFIND 解析、路径双向映射、全能力往返、鉴权失败/不可达探测、auto 选路、**运行期失败回退**、强制模式不回退 |
+| P4 安装 | 打包 0.3.0 → remove/add | profile 已装 0.3.0，`lib/client/webdav.js` 在包内 |
+| P5 隐私门 | `privacy_scan.py . --history` | 零命中；真实 NAS 地址已泛化为 `<nas-ip>` |
+| P6 建仓 | 远端 main `8f24fcf`（CI #5 success） | `github.com:443` 与隧道 IP 全部超时 → 走 **api.github.com Git Data API 推送**，断言服务端 tree `bfefe9c` == 本地 `HEAD^{tree}` |
+| P7 发布 | `dsh-zspace@0.3.0` | `dist-tags.latest = 0.3.0`；sha1 `a43d5114…` == `dist.shasum`；与本地 tgz 逐字节一致；逐文件 41 一致 |
+| P8 回写 | 本节 + CHANGELOG + skill 补 4b 节 | — |
+
+### 选路实测（真机，本机网络当天从 192.168.31.163 变到 192.168.1.12）
+
+| 配置 | 结果 |
+|---|---|
+| 无 `ZS_WEBDAV_PASSWORD` | 通道 = relay；探测 = 缺少凭据 ✓（不报错、不影响使用） |
+| 密码错误 | 通道 = relay；探测 = 超时/不可达；中转探活仍 true ✓ |
+| 密码错误 + `transportMode: webdav` | 通道 = webdav（强制），失败按要求暴露 ✓ |
+
+**未完成项（需要在真正的同网环境由使用者本人验证）**：本次跑测期间 NAS 的 TCP 端口（5005/5006/5055）从当前网络不可达（ICMP 通、桌面客户端云中转正常），因此**没有跑通一次真实 WebDAV 往返**；直连往返由 mock WebDAV 的 7 项测试覆盖。验证命令：
+
+```sh
+export ZS_WEBDAV_URL=http://<nas-ip>:5005/ ZS_WEBDAV_USER=<NAS账号> ZS_WEBDAV_PASSWORD=<密码>
+node -e 'import("./lib/client.js").then(async m=>{const c=new m.ZSpaceClient({webdavUrl:process.env.ZS_WEBDAV_URL,webdavUser:process.env.ZS_WEBDAV_USER,homePath:"/sata1/my/data",publicPath:"/sata1/public"});console.log(await c.transportReport())})'
+ZS_WEBDAV_URL=... ZS_WEBDAV_USER=... ZS_WEBDAV_PASSWORD=... node scripts/live-selftest.js   # 会多跑「通道诊断」与「WebDAV 直连写→读」
+```
+
+### 本轮另外两条结论
+
+1. **git 推送的备胎通道**：`github.com:443` 与全部隧道 IP 都失效时，用 `api.github.com` 的 Git Data API 推送（新建 blob→tree→commit→更新 ref）。**服务端 commit SHA 与本地不同**（账号身份/时间/消息差异），但脚本会断言 **tree sha 与本地 `HEAD^{tree}` 一致**，内容等价、CI 照常绿。已沉淀为 `dsh-plugin-publish-repo/scripts/gh_api_push.py` 与 skill 第 4b 节。
+2. **npm 分段发布**：0.3.0 这次发布到 promote 约 10 分钟；期间 `latest` 仍是 0.1.2，属正常窗口。

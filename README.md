@@ -44,7 +44,17 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 - `transportMode`：`auto`（默认）/ `webdav`（强制，失败直接报错）/ `relay`（保持旧行为）。
 - 路径映射：NAS 的 `/sata1/my/data/...` ↔ WebDAV 的 `<webdavHomePath>/...`（默认根 `/`）；公共空间由 `webdavPublicPath` 指定（默认空＝不在 WebDAV 暴露，相关路径自动回到中转）。
 - 极空间要在「系统设置 → 文件服务」里开启 WebDAV（默认端口 `5005`，本机实测可用；`5006` 是自签 HTTPS，证书校验会失败）。
-- 密码只走环境变量（`ZS_WEBDAV_PASSWORD`，可选 `ZS_WEBDAV_USER`），**不要写进 patch 文件**——patch 是明文，会被备份/截图带走。
+- **零 patch 配置**：三个环境变量就能启用直连，不需要改任何 patch 文件（避开"同 id 插两次导致挂载两次"的坑）：
+  `ZS_WEBDAV_URL`（如 `http://<nas-ip>:5005/`）、`ZS_WEBDAV_USER`（NAS 账号）、`ZS_WEBDAV_PASSWORD`。
+  插件跑在 DSH Desktop 进程里，所以要让**桌面端**能看到这些变量（macOS）：
+  ```sh
+  launchctl setenv ZS_WEBDAV_URL 'http://<nas-ip>:5005/'
+  launchctl setenv ZS_WEBDAV_USER '<NAS账号>'
+  launchctl setenv ZS_WEBDAV_PASSWORD '<密码>'
+  # 然后 Cmd+Q 完全退出 DSH Desktop 再重新打开（launchctl setenv 只影响之后启动的进程）
+  ```
+  想改回只走中转：`launchctl unsetenv ZS_WEBDAV_URL`（或设 `transportMode: relay`）。
+- 密码不写进 patch 文件——patch 是明文，会被备份/截图带走。
 - `zspace_remove` 在 WebDAV 通道下是 NAS 侧的删除语义（是否进回收站由 NAS 决定）；要确保进回收站请用 `transportMode: relay`。
 
 ## 工具

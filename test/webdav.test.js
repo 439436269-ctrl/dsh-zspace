@@ -354,6 +354,27 @@ test("WebDAV transport serves every capability over the LAN", async () => {
 	}
 });
 
+test("the fast path can be enabled by environment variables alone", async () => {
+	const dav = await startDavServer();
+	const previous = { url: process.env.ZS_WEBDAV_URL, user: process.env.ZS_WEBDAV_USER, password: process.env.ZS_WEBDAV_PASSWORD };
+	process.env.ZS_WEBDAV_URL = dav.baseUrl;
+	process.env.ZS_WEBDAV_USER = USER;
+	process.env.ZS_WEBDAV_PASSWORD = PASSWORD;
+	try {
+		const client = new ZSpaceClient({ homePath: HOME, publicPath: PUBLIC }); // 没有任何 webdav* 配置项
+		const report = await client.transportReport();
+		assert.equal(report.configured, true, "env-only configuration must count as configured");
+		assert.equal(report.transport, "webdav");
+		assert.equal((await client.list(HOME)).entries.some(entry => entry.name === "note.txt"), true);
+	} finally {
+		for (const [key, value] of Object.entries(previous)) {
+			const name = { url: "ZS_WEBDAV_URL", user: "ZS_WEBDAV_USER", password: "ZS_WEBDAV_PASSWORD" }[key];
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+	}
+});
+
 test("probe reports unreachable, rejected credentials and configured state", async () => {
 	const { client, dav, restore } = await fixture();
 	try {
