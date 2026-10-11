@@ -191,6 +191,20 @@ async function main() {
 				config: { downloadDir: "", readMaxBytes: 262_144, writeMaxBytes: 5 * 1024 * 1024, listMaxEntries: 2000 },
 			}).map(spec => [spec.name, spec]),
 		);
+		await step("zspace_write 覆盖已有文件（旧版进回收站）", async () => {
+			const target = `${scratch}/覆盖-中文.md`;
+			const first = `第一版 ${new Date().toISOString()}\n`;
+			const second = `第二版 ${new Date().toISOString()}\n内容更长一点\n`;
+			await specs.get("zspace_write").execute({ path: target, content: first });
+			createdRemotely.push(target);
+			const again = await specs.get("zspace_write").execute({ path: target, content: second });
+			const back = await specs.get("zspace_read").execute({ path: target, maxBytes: 4096 });
+			if (back.content !== second) throw new Error("覆盖后读回的不是第二版内容");
+			if (again.bytes !== Buffer.byteLength(second, "utf8")) throw new Error("覆盖后字节数不符");
+			if (await specs.get("zspace_stat").execute({ path: target }).then(r => r.dir)) throw new Error("目标被写成了目录");
+			console.log(`  → 两版写入同一路径，读回第二版 ✓（${again.method}）`);
+		});
+
 		if (transportReport.transport === "webdav") {
 			await step("WebDAV 直连往返（经 tools 层：写→读）", async () => {
 				const target = `${scratch}/dav-直连.md`;

@@ -326,9 +326,46 @@ test("write puts text onto the NAS through a cleaned-up staging file", async () 
 		() => write.execute({ path: "note.txt", content: "x", overwrite: false }),
 		/overwrite=false 时拒绝覆盖/,
 	);
-	// overwrite 缺省 = 允许覆盖（fake client 的 info 永远成功，正好走这条分支）
-	const forced = await write.execute({ path: "note.txt", content: "覆盖" });
+	// overwrite 缺省 = 允许覆盖：中转通道必须「先删（进回收站）再写」，否则 /v2/file/create 会因同名失败
+	const removed = [];
+	const relayClient = fakeClient({
+		remove: async (paths) => {
+			removed.push(paths);
+		},
+		upload: async (localPath, remoteDir, options) => ({ remotePath: `${remoteDir}/${options.name}`, bytes: 6, method: "create" }),
+	});
+	const relayWrite = specsFor(relayClient).get("zspace_write");
+	const forced = await relayWrite.execute({ path: "note.txt", content: "覆盖" });
 	assert.equal(forced.path, `${HOME}/note.txt`);
+	assert.deepEqual(removed, [[`${HOME}/note.txt`]], "relay 通道覆盖前必须先把旧文件移入回收站");
+
+	// 直连 WebDAV 通道：PUT 本身就是覆盖，绝不能先删（那可能是永久删除）
+	const davRemoved = [];
+	const davClient = fakeClient({
+		transportReport: async () => ({ transport: "webdav", configured: true, probe: { usable: true } }),
+		remove: async (paths) => {
+			davRemoved.push(paths);
+		},
+		upload: async (localPath, remoteDir, options) => ({ remotePath: `${remoteDir}/${options.name}`, bytes: 6, method: "put" }),
+	});
+	const davWrite = specsFor(davClient).get("zspace_write");
+	const davValue = await davWrite.execute({ path: "note.txt", content: "覆盖" });
+	assert.equal(davValue.method, "put");
+	assert.deepEqual(davRemoved, [], "WebDAV 通道不该先删（PUT 直接覆盖）");
+
+	// 目标不存在时任何通道都不删
+	const missingRemoved = [];
+	const freshClient = fakeClient({
+		info: async () => {
+			throw Object.assign(new Error("文件不存在"), { code: "N001315" });
+		},
+		remove: async (paths) => {
+			missingRemoved.push(paths);
+		},
+		upload: async (localPath, remoteDir, options) => ({ remotePath: `${remoteDir}/${options.name}`, bytes: 3, method: "create" }),
+	});
+	await specsFor(freshClient).get("zspace_write").execute({ path: "new.txt", content: "新" });
+	assert.deepEqual(missingRemoved, [], "新文件不该触发删除");
 
 	await assert.rejects(() => write.execute({ path: "note.txt", content: "" }), /不能为空/);
 	// 用小上限的配置验证体积护栏（默认 5 MB，测试里不方便造）
