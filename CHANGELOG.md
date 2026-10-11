@@ -1,5 +1,13 @@
 # 变更日志
 
+## 0.3.2 — 2026-10-11
+
+修正**注入给模型的指南**滞后于工具演进的问题（只影响文档文案，行为不变）：
+
+- `lib/prompt.js`：补 `zspace_write`；说明两条通道与自动选路（并指向 `zspace_status` 的 `transport` / `webdavProbe`）；修正"删除必进回收站"的说法——云中转通道进回收站，**WebDAV 直连通道由 NAS 侧决定**，要确保可找回就先确认通道或临时 `transportMode: relay`。
+- `lib/tools/remove.js`：工具描述与渲染同步标注该通道差异。
+- 起因：收尾复核时发现系统提示里的工具清单还停在 0.1.x（缺 `zspace_write`、把回收站语义写死），会误导每个新会话。
+
 ## 0.3.1 — 2026-10-07
 
 - WebDAV 地址也支持环境变量 `ZS_WEBDAV_URL`：**三个环境变量即可启用直连，零 patch 改动**（避开 profile 层同 id 插两次导致挂载两次的坑）；`zspace_status` 报告统一走同一取值。
