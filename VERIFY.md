@@ -206,3 +206,16 @@ ZS_WEBDAV_URL=... ZS_WEBDAV_USER=... ZS_WEBDAV_PASSWORD=... node scripts/live-se
 - 验证：**37/37 测试**（新增"仅靠环境变量也能启用直连"用例）；npm `0.3.1` 已发布（`latest`），产物与本地 tgz 逐字节一致。
 - 推送：仍走 `api.github.com` 备胎通道，远端 main `259ee77`（tree 与本地 `HEAD^{tree}` 一致，CI #6 success）；本地 HEAD `f7c3f44` 与之内容等价、SHA 不同。
 - 实测纠错：API 推送后**不能**用 `git update-ref refs/remotes/origin/main <服务端SHA>` 对齐（对象不在本地 → `nonexistent object`）；等 github 恢复后 `git fetch && git reset --hard origin/main` 收口。已修 `dsh-plugin-publish-repo` skill 第 4b 节。
+
+## 10. 0.3.3：修 `zspace_write` 的覆盖语义（2026-10-11，收尾时发现）
+
+| 阶段 | 产出 | 验收证据 |
+|---|---|---|
+| P2 实现 | `lib/tools/write.js` 覆盖时按通道处理：relay 先 `remove`（进回收站）再写；WebDAV 直接 PUT 覆盖；目标不存在不动 | 工具 description 同步写清两条语义 |
+| P3 验证 | 单测新增覆盖三分支（中转先删 / WebDAV 不删 / 新文件不删）；真机自检新增「覆盖已有文件」步骤 | **37/37 通过**；真机 `✔ zspace_write 覆盖已有文件（旧版进回收站）`，两版写同一路径读回第二版，exit 0 且清理干净 |
+| P4 安装 | 打包 0.3.3 → remove/add | profile 已装 0.3.3 |
+| P5 隐私门 | `privacy_scan.py . --history` | 零命中 |
+| P6 建仓 | 提交 `dcef159` → API 通道推送 | 远端 main `525abcc`（tree 与本地 `HEAD^{tree}` 一致） |
+| P7 发布 | `dsh-zspace@0.3.3` | `dist-tags.latest = 0.3.3`；与本地 tgz 逐字节一致；发布走 `~/.secrets/keys.env`（统一密钥文件）而非明文/钥匙串 |
+
+**触发原因**：清理 NAS 公共空间上的凭据副本时，用 `zspace_write` 覆盖一个已存在文件被 NAS 拒绝（`存在同名文件(夹)，创建失败`）——工具自 0.1.2 起描述承诺"默认覆盖"，实际做不到。这属于"给模型的文案与实现不一致"，和 0.3.2 修的 `lib/prompt.js` 是同一类问题。
