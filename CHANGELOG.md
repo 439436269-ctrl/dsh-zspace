@@ -1,5 +1,37 @@
 # 变更日志
 
+## 0.4.0 — 2026-10-18
+
+新增 **6 个 Docker / 整机工具**，把「极空间 Docker 运维」并进本插件（原先散落在独立的 `dsh-zspace-docker` 插件里）。**仅服务端工具，无客户端 UI**：不新增面板、不新增设置项，也不改任何既有工具的名字、参数或返回结构；`lib/config.js` 未动（这 6 个工具无配置）。
+
+**为什么加**：这台 NAS 的 containerd 会周期性 wedge（2026-10-16/17/18 三次实测）。那时容器状态仍显示 `running`、文件 API 一切正常，只有容器操作静默失效——而文件类工具**无法诊断也救不回来**。要判断"引擎是不是真的坏了"、并在坏掉时恢复，agent 需要在同一个插件里拿到这几个工具。
+
+新增工具：
+
+| 工具 | 能力 |
+|---|---|
+| `zspace_docker_list` | 容器列表（name/state/status/id）+ running/count |
+| `zspace_docker_inspect` | 单个容器完整配置（镜像/命令/env/挂载/端口/网络/重启策略） |
+| `zspace_docker_logs` | 尾部日志（已剥掉多路复用帧头，可直接读） |
+| `zspace_docker_op` | start / stop / restart / remove / pause；`remove` 必须 `confirm=true` |
+| `zspace_docker_health` | 引擎真健康判据，verdict ∈ `healthy` / `containerd-wedged` / `container-not-running` / `service-off` / `error` |
+| `zspace_system_reboot` | 整机重启（`POST /system/reboot`），必须 `confirm=true` |
+
+写进代码注释的四条实测协议事实：
+
+1. **方法不对称**：`/zdocker/container_op` 是 **GET**；`/zdocker/system_restart` 与 `/system/reboot` 是 **POST**。传错方法一律 `404 page not found`（纯文本，不是 JSON）。插件在客户端层固定了方法，模型无需也无法选。
+2. **HTTP 200 ≠ 成功**：业务失败时 HTTP 仍是 200，`code` 字段就是错误文本（`Error response from daemon: …`）。所以 `lib/client/docker.js` 自己解包并检查 `code`，不复用文件 API 的 `parse()`（那边的 `code` 是 `N00…` 业务码）。
+3. **`/system/reboot` 不在 `/zdocker` 命名空间下**，是整机重启；`system_restart` 只重启 dockerd，containerd wedge 时救不了。
+4. **`container_top` 当健康检查有陷阱**：容器没运行时它直接返回 `is not running`、**根本不碰 containerd**，所以"有返回"不能证明引擎健康。只有返回真实 `Processes` 数组才算 `healthy`；报 `dial unix:///run/containerd/containerd.sock: timeout` 才是 wedge。
+
+实现与验证：
+
+- `lib/client/docker.js`：只复用既有 `lib/client/transport.js`（URL 形状 + `client.send`）与 `lib/client/session.js`（`authHeaders`），不重复实现鉴权/超时/重试；整机重启走"零重试"视图，避免超时重发变成连下两次重启命令。
+- `lib/tools/docker-{list,inspect,logs,op,health}.js` + `lib/tools/system-reboot.js`：一个文件一个能力，形状与 `lib/tools/stat.js` 一致（普通对象参数、封闭 `outputSchema`、`render`/`execute`）。
+- `lib/prompt.js`：新增一小节，讲清"先 health 判引擎、wedge 只能整机重启、container_op 是 GET、remove 要 confirm"。
+- 测试：**36 项**（新增 7 项 Docker 用例），覆盖 spec 形状、GET/POST 方法约束、`code` 非 200 的失败路径、404 方法提示、`remove`/`reboot` 缺 `confirm` 拒绝、health 五种 verdict 分支、日志帧头清洗。
+- 新增 `scripts/docker-selftest.js`（`npm run selftest:docker`）：**只读**真机冒烟（列表 / 详情 / 日志非空 / 健康判据），实测 8 个容器、`verdict=healthy`、日志 92 行。
+
 ## 0.3.3 — 2026-10-11
 
 修 `zspace_write` 的**覆盖语义**（自 0.1.2 起工具描述承诺"默认覆盖"，实际在全网盘根级会失败——NAS 的 `/v2/file/create` 只做新建，同名返回"存在同名文件(夹)，创建失败"）：

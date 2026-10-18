@@ -178,7 +178,7 @@ dsh plugin --profile desktop add dsh-zspace@0.1.0
 | P7 发布 | `dsh-zspace@0.3.0` | `dist-tags.latest = 0.3.0`；sha1 `a43d5114…` == `dist.shasum`；与本地 tgz 逐字节一致；逐文件 41 一致 |
 | P8 回写 | 本节 + CHANGELOG + skill 补 4b 节 | — |
 
-### 选路实测（真机，本机网络当天从 192.168.31.163 变到 192.168.1.12）
+### 选路实测（真机，本机网络当天从 `<旧网段IP>` 变到 `<新网段IP>`）
 
 | 配置 | 结果 |
 |---|---|
@@ -219,3 +219,47 @@ ZS_WEBDAV_URL=... ZS_WEBDAV_USER=... ZS_WEBDAV_PASSWORD=... node scripts/live-se
 | P7 发布 | `dsh-zspace@0.3.3` | `dist-tags.latest = 0.3.3`；与本地 tgz 逐字节一致；发布走 `~/.secrets/keys.env`（统一密钥文件）而非明文/钥匙串 |
 
 **触发原因**：清理 NAS 公共空间上的凭据副本时，用 `zspace_write` 覆盖一个已存在文件被 NAS 拒绝（`存在同名文件(夹)，创建失败`）——工具自 0.1.2 起描述承诺"默认覆盖"，实际做不到。这属于"给模型的文案与实现不一致"，和 0.3.2 修的 `lib/prompt.js` 是同一类问题。
+
+## 11. 0.4.0：并入 Docker / 整机能力（2026-10-18）
+
+| 阶段 | 产出 | 验收证据 |
+|---|---|---|
+| P2 实现 | `lib/client/docker.js`（323 行）+ `lib/tools/docker-{list,inspect,logs,op,health}.js` + `lib/tools/system-reboot.js`；`lib/tools.js` 注册 6 个新工具；`lib/prompt.js` 新增 Docker 小节 | 一个文件一个能力，spec 形状同 `lib/tools/stat.js`；参数是普通对象、`outputSchema` 全封闭；`lib/config.js` 未改（无新配置项） |
+| P3 验证 | 单测 36 项、`node --check` 全过、真机只读冒烟 `scripts/docker-selftest.js` | **36/36 pass**；真机 8 个容器、`verdict=healthy`（7 个进程）、日志 92 行非空 |
+| P4 发布 | **未做**（本次只交付代码与验证，npm/GitHub 由主代理处理） | — |
+
+**为什么加**：这台 NAS 的 containerd 周期性 wedge（10-16/17/18 三次），那时容器状态仍显示 `running`、文件 API 全正常，只有容器操作静默失效。文件类工具既诊断不了也救不回来。
+
+**写进代码注释的四条协议事实**（真机实测）：方法不对称（`container_op` 是 GET，`system_restart` / `/system/reboot` 是 POST）；HTTP 200 ≠ 成功（错误文本在 `code` 里）；`/system/reboot` 不在 `/zdocker` 下，是 containerd wedge 的唯一 API 级恢复手段；`container_top` 对未运行容器会短路 `is not running`、不碰 containerd，只有真实 `Processes` 才算 healthy。
+
+**真机冒烟原始输出**（`node scripts/docker-selftest.js`，只读，未做任何生命周期操作）：
+
+```text
+=== 2) Docker 服务状态 ===
+  ✅ system_status 可读  status=on
+=== 3) 容器列表（GET /zdocker/container_list） ===
+  ✅ container_list 有返回  8 个
+     zspace-dsh               running    Up 5 minutes
+     lfm-llm                  exited     Exited (0) 12 hours ago
+     mimo-llm                 exited     Exited (137) 2 days ago
+     appstore_openclaw        exited     Exited (137) 20 minutes ago
+     appstore_siyuan          exited     Exited (0) 21 minutes ago
+     appstore_ddns-go         exited     Exited (2) 16 minutes ago
+     appstore_ollama          exited     Exited (0) 21 minutes ago
+     browser                  exited     Exited (137) 2 days ago
+  ✅ 每行都有 name/state/id
+=== 4) 详情与日志（挑一个运行中的容器） ===
+  ✅ container_info 有镜像  node:latest
+  ✅ container_info 有 HostConfig/Config
+     zspace-dsh  mounts=4  env=7
+  ✅ container_logs 有内容  zspace-dsh / 92 行
+     尾部：2026-10-18T15:17:36.221736177Z [entry-proxy] 2026-10-18T15:17:36.206Z 已注入兼容垫片 /（37346B）
+=== 5) 引擎健康判据（本次最关键） ===
+  ✅ 判据返回合法枚举  verdict=healthy  processes=7
+  ✅ 本次要求 healthy
+  ✅ healthy 时进程数 > 0  7 个进程
+
+★★★ 全部通过
+```
+
+> 日志帧头的细节：真机上 `container_logs` 的每行前面带着 Docker 多路复用流的 8 字节帧头（1 字节流类型 + 3 个 0 + 4 字节大端长度），长度末字节解码后会以 `j` / `;` / `�` 的形式串到行首。`lib/client/docker.js` 先按帧头剥、再清控制字节，冒烟里的三行尾部已经是干净的 ISO 时间戳开头。

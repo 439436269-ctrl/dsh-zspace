@@ -67,6 +67,71 @@ function fakeClient(overrides = {}) {
 }
 
 /**
+ * Build a client stub that answers Docker-namespace calls **at the wire
+ * boundary** (`client.send`), because the Docker capability deliberately reuses
+ * the real URL shaping and auth from `lib/client/`. Recording every request is
+ * what lets these tests pin the protocol facts: `container_op` is GET,
+ * `/system/reboot` is POST, and a non-`200` `code` beats an HTTP 200.
+ *
+ * @param {object} [options] - canned answers.
+ * @param {Array<Record<string, any>>} [options.containers] - raw `container_list` rows.
+ * @param {Record<string, any>} [options.inspect] - raw `container_info` payload.
+ * @param {string} [options.logs] - raw `container_logs` text.
+ * @param {Record<string, any>} [options.top] - raw `container_top` payload.
+ * @param {string} [options.topStderr] - daemon error text for `container_top`.
+ * @param {string} [options.listError] - daemon error text for `container_list`.
+ * @param {string} [options.service] - `system_status` value.
+ * @returns {{client: Record<string, any>, calls: Array<Record<string, any>>}} stub and its call log.
+ */
+function dockerClient(options = {}) {
+	/** @type {Array<Record<string, any>>} */
+	const calls = [];
+	const ok = data => ({ status: 200, headers: {}, text: JSON.stringify({ code: "200", data }) });
+	const fail = code => ({ status: 200, headers: {}, text: JSON.stringify({ code }) });
+	const containers = options.containers ?? [
+		{ Names: "/appstore_openclaw", State: "running", Status: "Up 3 days", Id: "a".repeat(64) },
+		{ Names: "/appstore_ollama", State: "exited", Status: "Exited (137) 2 days ago", Id: "b".repeat(64) },
+	];
+	const inspect = options.inspect ?? {
+		Name: "/appstore_openclaw",
+		Id: "a".repeat(64),
+		Created: "2026-10-01T10:00:00Z",
+		State: { Status: "running" },
+		Config: { Image: "openclaw:latest", Cmd: ["bash", "/entry.sh"], Entrypoint: ["/init"], Env: ["TZ=Asia/Shanghai"] },
+		HostConfig: { NetworkMode: "host", RestartPolicy: { Name: "always" }, PortBindings: { "19388/tcp": [{ HostPort: "19388" }] } },
+		Mounts: [{ Destination: "/dsh", Source: "/sata1/my/data/dsh", Type: "bind" }],
+	};
+
+	const client = {
+		baseUrl: "http://127.0.0.1:13579",
+		credentials: { token: "tok", nasId: "ZTEST", deviceId: "dev" },
+		maxRetries: 2,
+		send: async request => {
+			calls.push(request);
+			switch (request.endpoint) {
+				case "/zdocker/system_status":
+					return ok({ status: options.service ?? "on" });
+				case "/zdocker/container_list":
+					return options.listError ? fail(options.listError) : ok(containers);
+				case "/zdocker/container_info":
+					return ok(inspect);
+				case "/zdocker/container_logs":
+					return ok(options.logs ?? "line one\nline two");
+				case "/zdocker/container_op":
+					return ok(null);
+				case "/zdocker/container_top":
+					return options.topStderr ? fail(options.topStderr) : ok(options.top ?? { Processes: [["root", "1"], ["root", "2"], ["root", "3"]] });
+				case "/system/reboot":
+					return ok({});
+				default:
+					return { status: 404, headers: {}, text: "404 page not found" };
+			}
+		},
+	};
+	return { client, calls };
+}
+
+/**
  * Build the tool specs for one fake client.
  *
  * @param {Record<string, any>} client - fake client.
@@ -443,12 +508,187 @@ test("ZSpace failures carry their hint into the tool error", async () => {
 	await assert.rejects(() => failing.execute({ path: "/" }), /没有权限/);
 });
 
+test("docker list reports the roster, running count and uses GET", async () => {
+	const { client, calls } = dockerClient();
+	const specs = specsFor(client);
+	const list = specs.get("zspace_docker_list");
+	const value = await list.execute({});
+	assertSchema(list.outputSchema, value);
+	assert.deepEqual([value.count, value.running], [2, 1]);
+	assert.deepEqual(value.containers.map(container => container.name), ["appstore_openclaw", "appstore_ollama"]);
+	assert.match(list.render({}, value)[0].text, /1\/2 运行中/);
+	assert.equal(calls[0].method, "GET");
+	assert.equal(calls[0].endpoint, "/zdocker/container_list");
+	assert.match(calls[0].headers.Cookie, /token=tok/, "会话必须靠 Cookie 带上");
+	assert.match(calls[0].url, /^http:\/\/127\.0\.0\.1:13579\/zdocker\/container_list\?&rnd=/);
+});
+
+test("docker inspect resolves a name and shapes the configuration", async () => {
+	const { client, calls } = dockerClient();
+	const inspect = specsFor(client).get("zspace_docker_inspect");
+	const value = await inspect.execute({ container: "appstore_openclaw" });
+	assertSchema(inspect.outputSchema, value);
+	assert.equal(value.name, "appstore_openclaw");
+	assert.equal(value.image, "openclaw:latest");
+	assert.equal(value.state, "running");
+	assert.deepEqual(value.mounts, [{ destination: "/dsh", source: "/sata1/my/data/dsh", type: "bind" }]);
+	assert.deepEqual(value.env, ["TZ=Asia/Shanghai"]);
+	assert.equal(value.restartPolicy, "always");
+	assert.equal(value.networkMode, "host");
+	assert.deepEqual(value.ports, ["0.0.0.0:19388->19388/tcp"]);
+	const text = inspect.render({}, value)[0].text;
+	assert.match(text, /19388/);
+	assert.match(text, /\/sata1\/my\/data\/dsh/);
+	assert.equal(calls.at(-1).endpoint, "/zdocker/container_info");
+	assert.match(calls.at(-1).url, new RegExp(`container_id=${"a".repeat(64)}`), "名字必须解析成 NAS 报告的完整 id");
+	await assert.rejects(() => inspect.execute({ container: "不存在的容器" }), /没有找到容器/);
+	await assert.rejects(() => inspect.execute({ container: "  " }), /需要一个容器名或 id/);
+});
+
+test("docker logs strips multiplexed control bytes and honours tail", async () => {
+	// 真机形状：每行前面是 8 字节帧头（类型 + 3 个 0 + 4 字节大端长度），
+	// 长度末字节解码后会以 `j`/`;`/U+FFFD 之类串到行首。
+	const muxed = "\u0001\u0000\u0000\u0000\u0000\u0000\u0001jline one\n\u0002\u0000\u0000\u0000\u0000\u0000\u0000;line two\u0002";
+	const { client, calls } = dockerClient({ logs: muxed });
+	const logs = specsFor(client).get("zspace_docker_logs");
+	const value = await logs.execute({ container: "appstore_openclaw", tail: 20 });
+	assertSchema(logs.outputSchema, value);
+	assert.equal(value.log, "line one\nline two", "帧头与长度字节都不能留在正文里");
+	assert.equal(value.lines, 2);
+	assert.equal(value.container, "appstore_openclaw");
+	assert.match(calls.at(-1).url, /tail=20/);
+	assert.match(logs.render({}, value)[0].text, /最近 2 行/);
+
+	const capped = await logs.execute({ container: "appstore_openclaw", tail: 99999 });
+	assert.match(calls.at(-1).url, /tail=2000/, "tail 上限 2000");
+
+	const empty = specsFor(dockerClient({ logs: "" }).client).get("zspace_docker_logs");
+	const blank = await empty.execute({ container: "appstore_openclaw" });
+	assert.equal(blank.lines, 0);
+	assert.match(empty.render({}, blank)[0].text, /日志为空/);
+});
+
+test("docker op guards remove, rejects unknown actions, and still uses GET", async () => {
+	const { client, calls } = dockerClient();
+	const op = specsFor(client).get("zspace_docker_op");
+
+	await assert.rejects(() => op.execute({ container: "appstore_openclaw", action: "remove" }), /confirm=true/);
+	assert.equal(calls.length, 0, "缺少 confirm 时不该发出任何请求");
+	await assert.rejects(() => op.execute({ container: "appstore_openclaw", action: "unpause" }), /不支持的 action/);
+	await assert.rejects(() => op.execute({ container: "nope", action: "start" }), /没有找到容器/);
+
+	const restarted = await op.execute({ container: "appstore_ollama", action: "restart" });
+	assertSchema(op.outputSchema, restarted);
+	assert.equal(restarted.container, "appstore_ollama");
+	assert.equal(restarted.action, "restart");
+	assert.equal(restarted.ok, true);
+	assert.equal(calls.at(-1).endpoint, "/zdocker/container_op");
+	assert.equal(calls.at(-1).method, "GET", "container_op 是 GET；POST 会 404");
+	assert.match(calls.at(-1).url, /action=restart/);
+
+	const removed = await op.execute({ container: "appstore_openclaw", action: "remove", confirm: true });
+	assert.equal(removed.ok, true);
+	assert.match(calls.at(-1).url, /action=remove/);
+	assert.match(op.render({}, removed)[0].text, /已提交/);
+});
+
+test("docker health distinguishes healthy, wedged, off and inconclusive probes", async () => {
+	const healthy = specsFor(dockerClient().client).get("zspace_docker_health");
+	const value = await healthy.execute({});
+	assertSchema(healthy.outputSchema, value);
+	assert.equal(value.verdict, "healthy");
+	assert.equal(value.processCount, 3);
+	assert.equal(value.probeContainer, "appstore_openclaw");
+	assert.equal(value.service, "on");
+	assert.match(healthy.render({}, value)[0].text, /✅/);
+
+	const wedged = specsFor(
+		dockerClient({ topStderr: "Error response from daemon: ... dial unix:///run/containerd/containerd.sock: timeout" }).client,
+	).get("zspace_docker_health");
+	const wedgedValue = await wedged.execute({});
+	assert.equal(wedgedValue.verdict, "containerd-wedged");
+	assert.equal(wedgedValue.processCount, 0);
+	assert.match(wedgedValue.detail, /containerd\.sock/);
+	assert.match(wedged.render({}, wedgedValue)[0].text, /zspace_system_reboot/);
+
+	const noProcesses = specsFor(dockerClient({ top: { message: "no process list here" } }).client).get("zspace_docker_health");
+	const broken = await noProcesses.execute({});
+	assert.equal(broken.verdict, "error", "没有 Processes 数组就不算健康");
+	assert.match(broken.detail, /no process list here/);
+
+	const exited = [{ Names: "/appstore_ollama", State: "exited", Status: "Exited (137)", Id: "b".repeat(64) }];
+	const notRunning = specsFor(dockerClient({ containers: exited }).client).get("zspace_docker_health");
+	const none = await notRunning.execute({});
+	assert.equal(none.verdict, "container-not-running");
+	assert.equal(none.probeContainer, "");
+	assert.match(notRunning.render({}, none)[0].text, /不可信/);
+
+	const pinned = specsFor(dockerClient().client).get("zspace_docker_health");
+	const stoppedProbe = await pinned.execute({ container: "appstore_ollama" });
+	assert.equal(stoppedProbe.verdict, "container-not-running");
+	assert.equal(stoppedProbe.probeContainer, "appstore_ollama");
+
+	const off = specsFor(dockerClient({ service: "off" }).client).get("zspace_docker_health");
+	const offValue = await off.execute({});
+	assert.equal(offValue.verdict, "service-off");
+	assert.match(off.render({}, offValue)[0].text, /Docker 服务是关的/);
+
+	const listDown = specsFor(dockerClient({ listError: "Error response from daemon: timeout" }).client).get("zspace_docker_health");
+	const downValue = await listDown.execute({});
+	assert.equal(downValue.verdict, "error", "列表都读不到时给出 error 而不是抛出");
+	assert.match(downValue.detail, /容器列表读取失败/);
+});
+
+test("system reboot requires confirm and posts", async () => {
+	const { client, calls } = dockerClient();
+	const reboot = specsFor(client).get("zspace_system_reboot");
+	await assert.rejects(() => reboot.execute({}), /confirm=true/);
+	assert.equal(calls.length, 0, "缺少 confirm 时不该发出任何请求");
+
+	const value = await reboot.execute({ confirm: true });
+	assertSchema(reboot.outputSchema, value);
+	assert.equal(value.ok, true);
+	assert.equal(calls.at(-1).endpoint, "/system/reboot");
+	assert.equal(calls.at(-1).method, "POST", "/system/reboot 是 POST；GET 会 404");
+	assert.equal(calls.at(-1).body.toString("utf8"), "{}");
+	assert.match(reboot.render({}, value)[0].text, /7~8 分钟/);
+});
+
+test("docker failures surface the daemon text and the 404 method hint", async () => {
+	const daemon = specsFor(
+		dockerClient({ listError: "Error response from daemon: ... dial unix:///run/containerd/containerd.sock: timeout" }).client,
+	).get("zspace_docker_list");
+	await assert.rejects(
+		() => daemon.execute({}),
+		error => {
+			assert.match(error.message, /containerd\.sock: timeout/);
+			assert.match(error.message, /只能整机重启|zspace_system_reboot/);
+			return true;
+		},
+	);
+
+	// 方法传错时 openresty 直接回纯文本 404（不是 JSON 包封）—— 必须能被读懂并给出提示
+	const wrongMethod = {
+		baseUrl: "http://127.0.0.1:13579",
+		credentials: { token: "tok", nasId: "ZTEST", deviceId: "dev" },
+		send: async () => ({ status: 404, headers: {}, text: "404 page not found" }),
+	};
+	await assert.rejects(
+		() => specsFor(wrongMethod).get("zspace_docker_list").execute({}),
+		error => {
+			assert.match(error.message, /404 page not found/);
+			assert.match(error.message, /方法传错/);
+			return true;
+		},
+	);
+});
+
 test("every spec is well-formed: unique zspace_ name, described parameters, valid output", async () => {
 	const client = fakeClient();
 	const specs = createToolSpecs({ getClient: () => client, config: { downloadDir: "", readMaxBytes: 262_144, listMaxEntries: 2000 } });
 	const names = new Set();
 	for (const spec of specs) {
-		assert.match(spec.name, /^zspace_[a-z]+$/, `${spec.name} must be namespaced`);
+		assert.match(spec.name, /^zspace_[a-z][a-z_]*$/, `${spec.name} must be namespaced`);
 		assert.equal(names.has(spec.name), false, `${spec.name} registered twice`);
 		names.add(spec.name);
 		assert.ok(spec.description.length > 40, `${spec.name} needs a real description`);
@@ -463,5 +703,5 @@ test("every spec is well-formed: unique zspace_ name, described parameters, vali
 		assert.equal(spec.outputSchema.type, "object", `${spec.name} output must be an object`);
 		assert.equal(spec.outputSchema.additionalProperties, false, `${spec.name} output must be closed`);
 	}
-	assert.equal(names.size, 13, "the plugin ships 13 tools");
+	assert.equal(names.size, 19, "the plugin ships 19 tools (13 file tools + 6 Docker/system tools)");
 });

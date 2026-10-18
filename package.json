@@ -1,6 +1,6 @@
 {
   "name": "dsh-zspace",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "极空间（ZSpace）NAS plugin for DeepSeek Harness: cross-network agent tools for browsing, searching, reading, uploading and organizing NAS files through the desktop client's relay — no LAN, no WebDAV, no SSH, no Python.",
   "type": "module",
   "license": "MIT",
@@ -53,7 +53,8 @@
   },
   "scripts": {
     "test": "node --test test/client.test.js test/tools.test.js test/adaptor.test.js",
-    "selftest": "node scripts/live-selftest.js"
+    "selftest": "node scripts/live-selftest.js",
+    "selftest:docker": "node scripts/docker-selftest.js"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

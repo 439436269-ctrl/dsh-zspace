@@ -20,15 +20,18 @@ lib/
 │   ├── relay.js     31 行  中转通道聚合（把下面各能力汇总成一个面）
 │   ├── webdav.js   520 行  WebDAV 直连通道（PROPFIND/PUT/MOVE/COPY + 路径双向映射）
 │   ├── router.js    99 行  选路：auto 探测 / 强制 / 运行期回退
+│   ├── docker.js   323 行  Docker / 整机：列表/详情/日志/生命周期/健康判据/整机重启
 │   ├── upload.js    129 行  单请求上传 + 分片协议
 │   └── download.js  128 行  流式下载、限量读入内存
-├── tools.js        68 行   工具注册表：建 ctx、按顺序调用 13 个工厂
+├── tools.js        80 行   工具注册表：建 ctx、按顺序调用 19 个工厂
 └── tools/
     ├── shared.js     52 行  clampInt / entryLine / guarded
     ├── paths.js      84 行  home:/public:/相对/绝对 解析 + 本地路径（含 ~/）
     ├── walk.js      118 行  walkDirectory（ls 递归）、findByName（受限查找）
-    └── <工具名>.js  35-120 行  每个工具一个文件：status ls stat find read
+    └── <工具名>.js  35-135 行  每个工具一个文件：status ls stat find read
                                 download upload write mkdir rename move copy remove
+                                docker-list docker-inspect docker-logs docker-op
+                                docker-health system-reboot
 ```
 
 ## 依赖方向（严格单向，无环）
@@ -74,4 +77,4 @@ index.js ──> config.js ──> auth.js
 - 单文件控制在 ~200 行内（`transport.js` 是唯一例外：编码→发送→校验逻辑内聚在一起）；
 - 每个文件顶部一句话职责 + `@module dsh-zspace/...`；
 - 对外 API 只有 `lib/index.js`（插件）与 `lib/client.js`（`ZSpaceClient` / `ZSpaceError`）两个入口，子模块视为内部结构，不进 `package.json` 的 `exports`；
-- 逻辑改动必须让 28 项 mock 测试保持全绿，触及传输/上传时另跑 `node scripts/live-selftest.js` 真机验证。
+- 逻辑改动必须让 36 项 mock 测试保持全绿，触及传输/上传时另跑 `node scripts/live-selftest.js` 真机验证，触及 Docker 相关时另跑 `node scripts/docker-selftest.js`（只读）。

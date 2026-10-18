@@ -74,6 +74,22 @@ dsh plugin --profile desktop add /绝对路径/dsh-zspace-0.1.0.tgz
 | `zspace_move` | 移动到另一个目录（服务端操作，不下载） |
 | `zspace_copy` | 服务端复制 |
 | `zspace_remove` | 删除（NAS 侧进回收站）；**必须显式传 `confirm: true`** |
+| `zspace_docker_list` | 容器列表（name/state/status/id）与 running/count |
+| `zspace_docker_inspect` | 单个容器的完整配置：镜像、命令、env、挂载、端口、网络模式、重启策略。重建前先留底 |
+| `zspace_docker_logs` | 容器尾部日志（`tail` 默认 200）；多路复用帧头已剥掉，可直接读 |
+| `zspace_docker_op` | 容器生命周期：`start` / `stop` / `restart` / `remove` / `pause`；**`remove` 必须 `confirm: true`** |
+| `zspace_docker_health` | 引擎真健康判据；verdict 见下 |
+| `zspace_system_reboot` | 整机重启（`POST /system/reboot`）；**必须 `confirm: true`** |
+
+### Docker 与整机（0.4.0）
+
+这台 NAS 的 containerd 会周期性卡死（wedge），此时容器状态还显示 `running`，但所有启动/停止/删除都静默失效。这几个工具就是为诊断与恢复准备的：
+
+- **先 `zspace_docker_health` 再动手**。`verdict`：`healthy`（`container_top` 返回了真实进程列表，containerd 在工作）、`containerd-wedged`（`dial unix:///run/containerd/containerd.sock: timeout`，此时任何容器操作都无效）、`container-not-running`（探针容器没跑，`container_top` 根本不碰 containerd，结论不可信）、`service-off`、`error`。
+- **wedge 只能整机重启**：`zspace_system_reboot`（`POST /system/reboot`，约 7~8 分钟）。Docker 引擎重启只重启 dockerd，不动 containerd，救不了。
+- **方法不对称是实打实的坑**：`container_op`（start/stop/restart/remove/pause）是 **GET**，而 `system_restart` 与 `/system/reboot` 是 **POST**；传错一律 `404 page not found`。插件在客户端层固定方法，工具参数里没有 method。
+- **HTTP 200 ≠ 成功**：业务失败时状态码仍是 200，错误文本在 `code` 字段里。插件会把它当失败抛出，并附带下一步提示。
+- 只新增服务端工具，**没有客户端 UI**；原有 13 个文件工具的名字、参数与返回结构完全不变。
 
 ### 路径写法
 
@@ -135,7 +151,7 @@ lib/index.js      插件接线（name/inject 转发 Config + apply）    lib/cli
 lib/config.js     配置 schema、默认值、边界校验                  transport  URL/编码/重试/校验
 lib/prompt.js     系统提示里的用法说明                            spaces     探活、存储池、空间根
 lib/tools.js      工具注册表（只做注册）                          browse/mutate  列表 / 增删改
-lib/tools/*.js    12 个工具，各一个文件                            upload/download  分片上传 / 流式下载
+lib/tools/*.js    19 个工具，各一个文件                            upload/download  分片上传 / 流式下载
 ```
 
 依赖是严格单向无环：`index → tools → client → {errors,transport} → format/auth`。加一个工具 = 新建 `lib/tools/<名字>.js` + 在 `lib/tools.js` 注册一行。
@@ -143,8 +159,9 @@ lib/tools/*.js    12 个工具，各一个文件                            uplo
 ## 测试
 
 ```sh
-node --test test/client.test.js test/tools.test.js test/adaptor.test.js   # 28 项单测/集成（mock 代理）
+node --test test/client.test.js test/tools.test.js test/adaptor.test.js   # 36 项单测/集成（mock 代理）
 node scripts/live-selftest.js                                            # 真机端到端自检（会创建并清理临时目录）
+node scripts/docker-selftest.js                                          # 真机 Docker 只读冒烟（列表/详情/日志/健康判据）
 ```
 
 `live-selftest.js` 覆盖：探活 → 存储池 → 定位个人/公共空间 → 建目录 → 中文名单请求上传 → 强制多分片上传 → 详情 → 读取 → 下载并校验 sha256 → 服务端复制 → 重命名 → 遍历查找 → 移动 → 删除 → 确认消失。
